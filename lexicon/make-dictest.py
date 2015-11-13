@@ -7,7 +7,8 @@
 #
 # Usage (runtime ~2 min):
 #
-#   ./make-dictest.py > out.tsv
+#   make-dictest.py > out.tsv
+#   make-dictest.py --pos-tags=n | cut -f2,3 | sort | uniq > nouns.tsv
 #
 # Output example (2 columns: synset ID and GF lexicon entry):
 #
@@ -30,7 +31,15 @@ import sys
 import re
 import argparse
 
-pos_tags = set([wn.NOUN, wn.VERB, wn.ADJ, wn.ADV])
+DEFAULT_POS_TAGS_ORDER=['n', 'v', 'a', 'b']
+
+pos_tags = {
+    'n': wn.NOUN,
+    'v': wn.VERB,
+    'a': wn.ADJ,
+    'b': wn.ADV
+}
+
 
 # TODO: add adt
 NOUN_FORMS = ['sg n', 'sg g', 'sg p', 'sg ill', 'pl g', 'pl p']
@@ -92,17 +101,25 @@ def get_funname(word, pos=None):
         return quote_funname(word)
     return quote_funname(word + '_' + pos)
 
-def gen_wn_lemmas(pos=wn.NOUN):
+
+def get_wn_pos(pos):
+    if pos in pos_tags:
+        return pos_tags[pos]
+    return None
+
+
+def gen_wn_lemmas(pos):
     """Generates POS-tag, synset ID, lemma.
     That is all the info that we currently want from WordNet.
     TODO: get ILI links too to be able to make bilingual lexicons.
     """
-    for synset in wn.all_synsets(pos=pos):
+    wnpos = get_wn_pos(pos)
+    for synset in wn.all_synsets(pos=wnpos):
         for lemma in synset.lemmas():
             yield pos, synset.name, lemma.name
 
 
-def gen_wn_lemmas_from_stdin(pos=wn.NOUN):
+def gen_wn_lemmas_from_stdin():
     """Just for convenience
     """
     for raw_line in sys.stdin:
@@ -119,39 +136,50 @@ def merge(forms):
         return forms[0]
     return ''
 
+def combine(lst, el):
+    if len(el):
+        return ' '.join(lst + [el])
+    return ''
+
+def get_forms_aux(lemma, pos, form_ids):
+    return [ merge(synthesize(lemma, form, pos)) for form in form_ids ]
 
 def get_forms(lemma, pos=wn.NOUN):
     """Get the relevant forms given the lemma and its POS.
     Note that synthesize also handles compounding and is smart
     about words like 'kuupalk'.
+    If the input lemma contains spaces then we synthesize based on the last part.
     (In the previous approaches we did compounding separately and
     applied form generation only to the last element of the compound.)
     """
+    parts = lemma.split(' ')
     if pos == wn.NOUN or pos == 'n':
-        return [ merge(synthesize(lemma, form, 'S')) for form in NOUN_FORMS ]
+        return [ combine(parts[0:-1] for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
     elif pos == wn.ADJ or pos == 'a':
-        return [ merge(synthesize(lemma, form, 'S')) for form in NOUN_FORMS ]
+        return [ combine(parts[0:-1] for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
     elif pos == wn.ADV or pos == 'b':
         return [ lemma ]
     else:
-        return [ merge(synthesize(lemma, form, 'V')) for form in VERB_FORMS ]
+        return [ combine(parts[0:-1] for x in get_forms_aux(parts[-1], 'V', VERB_FORMS) ]
 
 
 def get_args():
+    csl = lambda s: [el.strip() for el in s.split(',')]
     p = argparse.ArgumentParser(description='Convert the Estonian WordNet into a GF monolingual lexicon DictEst')
-    p.add_argument('-v', '--version', action='version', version='%(prog)s v0.0.1')
+    p.add_argument('--pos-tags', type=csl, action='store', dest='pos_tags', default=DEFAULT_POS_TAGS_ORDER)
+    p.add_argument('-v', '--version', action='version', version='%(prog)s v0.1.0')
     return p.parse_args()
 
 
 def main():
     args = get_args()
-    for pos in pos_tags:
+    for pos in args.pos_tags:
         for pos_name,synset_name,lemma_name in gen_wn_lemmas(pos):
             entry = Entry(synset_name, lemma_name, pos_name)
             if entry.is_illegal():
                 print_utf8('Warning: ignored: ' + entry.pp(), file=sys.stderr)
             else:
-                print_utf8('{0}\t{1}'.format(synset_name, entry.gf()))
+                print_utf8('{0}\t{1}\t{2}'.format(synset_name, lemma_name, entry.gf()))
 
 if __name__ == "__main__":
     main()
