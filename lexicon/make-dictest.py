@@ -8,7 +8,7 @@
 # Usage (runtime ~2 min):
 #
 #   make-dictest.py > out.tsv
-#   make-dictest.py --pos-tags=n | cut -f2,3 | sort | uniq > nouns.tsv
+#   make-dictest.py --pos-tags=n | cut -f2,3 | sort | uniq > nouns.tsv 2> nouns.err
 #
 # Output example (2 columns: synset ID and GF lexicon entry):
 #
@@ -154,13 +154,13 @@ def get_forms(lemma, pos=wn.NOUN):
     """
     parts = lemma.split(' ')
     if pos == wn.NOUN or pos == 'n':
-        return [ combine(parts[0:-1] for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
+        return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
     elif pos == wn.ADJ or pos == 'a':
-        return [ combine(parts[0:-1] for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
+        return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
     elif pos == wn.ADV or pos == 'b':
         return [ lemma ]
     else:
-        return [ combine(parts[0:-1] for x in get_forms_aux(parts[-1], 'V', VERB_FORMS) ]
+        return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'V', VERB_FORMS) ]
 
 
 def get_args():
@@ -177,9 +177,14 @@ def main():
         for pos_name,synset_name,lemma_name in gen_wn_lemmas(pos):
             entry = Entry(synset_name, lemma_name, pos_name)
             if entry.is_illegal():
-                print_utf8('Warning: ignored: ' + entry.pp(), file=sys.stderr)
+                print_utf8('Warning: ignored entry with empty form: ' + entry.pp(), file=sys.stderr)
             else:
-                print_utf8('{0}\t{1}\t{2}'.format(synset_name, lemma_name, entry.gf()))
+                try:
+                    print_utf8('{0}\t{1}\t{2}'.format(synset_name, lemma_name, entry.gf()))
+                except UnicodeEncodeError:
+                    print_utf8('Warning: ignored UnicodeEncodeError: ' + entry.pp(), file=sys.stderr)
+                except UnicodeDecodeError:
+                    print_utf8('Warning: ignored UnicodeDecodeError: ' + entry.pp(), file=sys.stderr)
 
 if __name__ == "__main__":
     main()
