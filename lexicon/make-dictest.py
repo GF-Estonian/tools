@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
 # WORK IN PROGRESS
@@ -22,8 +22,6 @@
 #   - if synthesize fails then try to split the word and apply synthesize on the last part
 #   - exclude adjectives with hyphens
 #   - turn synset elements into variants (e.g. in post-processing)
-
-from __future__ import division, unicode_literals, print_function
 
 from estnltk import synthesize
 from estnltk.wordnet import wn
@@ -77,23 +75,13 @@ class Entry:
             funname = get_funname(self.lemma, 'V')
             return '{0} = mkV {1} ;'.format(funname, oper_args)
 
-
-def print_utf8(s, file=sys.stdout):
-    print(s.encode('utf8'), file=file)
-
-def unicode_to_gfcode(u):
-    u1 = u.decode("utf8")
-    u2 = u1.encode('ascii', 'xmlcharrefreplace')
-    u3 = re.sub(r'[^A-Za-z0-9\']', '_', u2)
-    return u3
-
 def quote_funname(name):
     """
     Quote funnames which contain characters other than [^_A-Za-z0-9]
     """
     if not re.search(r'[\']', name) and re.search(r'[^_A-Za-z0-9]', name):
         return "'" + name + "'"
-    return unicode_to_gfcode(name)
+    return name
 
 def get_funname(word, pos=None):
     word = re.sub(r' ', '_', word)
@@ -101,32 +89,15 @@ def get_funname(word, pos=None):
         return quote_funname(word)
     return quote_funname(word + '_' + pos)
 
-
-def get_wn_pos(pos):
-    if pos in pos_tags:
-        return pos_tags[pos]
-    return None
-
-
 def gen_wn_lemmas(pos):
     """Generates POS-tag, synset ID, lemma.
     That is all the info that we currently want from WordNet.
     TODO: get ILI links too to be able to make bilingual lexicons.
     """
-    wnpos = get_wn_pos(pos)
+    wnpos = pos_tags.get(pos)
     for synset in wn.all_synsets(pos=wnpos):
         for lemma in synset.lemmas():
             yield pos, synset.name, lemma.name
-
-
-def gen_wn_lemmas_from_stdin():
-    """Just for convenience
-    """
-    for raw_line in sys.stdin:
-        line = raw_line.decode('utf8')
-        line = line.strip()
-        f = line.split('\t')
-        yield f[0],f[1],f[2]
 
 
 def merge(forms):
@@ -167,24 +138,19 @@ def get_args():
     csl = lambda s: [el.strip() for el in s.split(',')]
     p = argparse.ArgumentParser(description='Convert the Estonian WordNet into a GF monolingual lexicon DictEst')
     p.add_argument('--pos-tags', type=csl, action='store', dest='pos_tags', default=DEFAULT_POS_TAGS_ORDER)
-    p.add_argument('-v', '--version', action='version', version='%(prog)s v0.1.0')
+    p.add_argument('-v', '--version', action='version', version='%(prog)s v0.1.1')
     return p.parse_args()
 
 
 def main():
     args = get_args()
     for pos in args.pos_tags:
-        for pos_name,synset_name,lemma_name in gen_wn_lemmas(pos):
+        for pos_name, synset_name, lemma_name in gen_wn_lemmas(pos):
             entry = Entry(synset_name, lemma_name, pos_name)
             if entry.is_illegal():
-                print_utf8('Warning: ignored entry with empty form: ' + entry.pp(), file=sys.stderr)
+                print('Warning: ignored entry with empty form: ' + entry.pp(), file=sys.stderr)
             else:
-                try:
-                    print_utf8('{0}\t{1}\t{2}'.format(synset_name, lemma_name, entry.gf()))
-                except UnicodeEncodeError:
-                    print_utf8('Warning: ignored UnicodeEncodeError: ' + entry.pp(), file=sys.stderr)
-                except UnicodeDecodeError:
-                    print_utf8('Warning: ignored UnicodeDecodeError: ' + entry.pp(), file=sys.stderr)
+                print('{0}\t{1}\t{2}'.format(synset_name, lemma_name, entry.gf()))
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
