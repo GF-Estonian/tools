@@ -76,11 +76,10 @@ class Entry:
             return '{0} = mkV {1} ;'.format(funname, oper_args)
 
 def quote_funname(name):
+    """Quote funnames which contain characters other than [^_A-Za-z0-9]
     """
-    Quote funnames which contain characters other than [^_A-Za-z0-9]
-    """
-    if not re.search(r'[\']', name) and re.search(r'[^_A-Za-z0-9]', name):
-        return "'" + name + "'"
+    if re.search(r"[^_A-Za-z0-9']", name):
+        return "'" + re.sub("'", "\\'", name) + "'"
     return name
 
 def get_funname(word, pos=None):
