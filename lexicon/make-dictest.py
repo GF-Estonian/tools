@@ -126,7 +126,7 @@ def get_forms(lemma, pos=wn.NOUN):
     if pos == wn.NOUN or pos == 'n':
         return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
     elif pos == wn.ADJ or pos == 'a':
-        return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
+        return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'A', NOUN_FORMS) ]
     elif pos == wn.ADV or pos == 'b':
         return [ lemma ]
     else:
