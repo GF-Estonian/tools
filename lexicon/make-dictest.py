@@ -20,7 +20,6 @@
 #
 # TODO:
 #   - if synthesize fails then try to split the word and apply synthesize on the last part
-#   - exclude adjectives with hyphens
 #   - turn synset elements into variants (e.g. in post-processing)
 
 from estnltk import synthesize
@@ -29,7 +28,7 @@ import sys
 import re
 import argparse
 
-DEFAULT_POS_TAGS_ORDER=['n', 'v', 'a', 'b']
+DEFAULT_POS_TAGS_ORDER = ['n', 'v', 'a', 'b']
 
 pos_tags = {
     'n': wn.NOUN,
@@ -71,9 +70,8 @@ class Entry:
         elif pos == wn.ADV or pos == 'b':
             funname = get_funname(self.lemma, 'Adv')
             return '{0} = mkAdv {1} ;'.format(funname, oper_args)
-        else:
-            funname = get_funname(self.lemma, 'V')
-            return '{0} = mkV {1} ;'.format(funname, oper_args)
+        funname = get_funname(self.lemma, 'V')
+        return '{0} = mkV {1} ;'.format(funname, oper_args)
 
 def quote_funname(name):
     """Quote funnames which contain characters other than [^_A-Za-z0-9]
@@ -97,6 +95,23 @@ def gen_wn_lemmas(pos):
     for synset in wn.all_synsets(pos=wnpos):
         for lemma in synset.lemmas():
             yield pos, synset.name, lemma.name
+
+def filter_synset_lemmas(gen):
+    """Filter out various unwanted lemmas, e.g. multi-word nouns.
+    Multiword adjectives, adverbs and verbs are not frequent in EstWN, and do not
+    have the same issues as nouns.
+    """
+    for pos, synset_name, lemma_name in gen:
+        if '-' == lemma_name[-1]:
+            print('Warning: ignored {0} entry with trailing hyphen: {1}'.format(pos, lemma_name), file=sys.stderr)
+            continue
+        if ' ' in lemma_name:
+            # Do not generate multi-word nouns with space (e.g. "avalik sektor")
+            # because these should be handled by the grammar to get the agreement right.
+            if pos == wn.NOUN:
+                print('Warning: ignored {0} entry with space: {1}'.format(pos, lemma_name), file=sys.stderr)
+                continue
+        yield pos, synset_name, lemma_name
 
 
 def merge(forms):
@@ -144,7 +159,7 @@ def get_args():
 def main():
     args = get_args()
     for pos in args.pos_tags:
-        for pos_name, synset_name, lemma_name in gen_wn_lemmas(pos):
+        for pos_name, synset_name, lemma_name in filter_synset_lemmas(gen_wn_lemmas(pos)):
             entry = Entry(synset_name, lemma_name, pos_name)
             if entry.is_illegal():
                 print('Warning: ignored entry with empty form: ' + entry.pp(), file=sys.stderr)
