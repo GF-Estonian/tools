@@ -19,10 +19,11 @@
 #   jõud.n.01   'vägi_N' = mkN "vägi" "väe" "väge" "väesse" "vägede" "vägesid
 #
 # TODO:
-#   - if synthesize fails then try to split the word and apply synthesize on the last part
 #   - turn synset elements into variants (e.g. in post-processing)
+#   - handle verbs like "kokku kasvama"
+#   - reject plural nouns: abikaasad_N (causes ambiguity as EstNLTK generates forms from the singular form)
 
-from estnltk import synthesize
+from estnltk import analyze, synthesize
 from estnltk.wordnet import wn
 import sys
 import re
@@ -37,10 +38,21 @@ pos_tags = {
     'b': wn.ADV
 }
 
+pos_to_gf = {
+    'n': 'N',
+    'v': 'V',
+    'a': 'A',
+    'b': 'Adv'
+}
+
 
 # TODO: add adt
 NOUN_FORMS = ['sg n', 'sg g', 'sg p', 'sg ill', 'pl g', 'pl p']
 VERB_FORMS = ['ma', 'da', 'b', 'takse', 'ge', 's', 'nud', 'tud']
+
+# Set of words that have different forms depending on their meaning
+# TODO: maybe it is possible to query EstNLTK for such words
+SET_PALK = set(['palk', 'nukk'])
 
 class Entry:
 
@@ -48,7 +60,7 @@ class Entry:
         self.name = name
         self.lemma = lemma
         self.pos = pos
-        self.forms = get_forms(lemma, pos)
+        self.prefix, self.forms = get_forms(lemma, pos)
 
     def is_illegal(self):
         """Entry is illegal iff at least one form is missing.
@@ -61,17 +73,20 @@ class Entry:
     def gf(self):
         pos = self.pos
         oper_args = ' '.join(['"' + x + '"' for x in self.forms])
-        if pos == wn.NOUN or pos == 'n':
-            funname = get_funname(self.lemma, 'N')
+        funname = get_funname(self.lemma, pos_to_gf.get(pos))
+        if pos == 'n':
+            if self.prefix:
+                return '{0} = mkN "{1}" (mkN {2}) ;'.format(funname, self.prefix, oper_args)
             return '{0} = mkN {1} ;'.format(funname, oper_args)
-        elif pos == wn.ADJ or pos == 'a':
-            funname = get_funname(self.lemma, 'A')
+        elif pos == 'a':
+            if self.prefix:
+                return '{0} = mkA (mkN "{1}" (mkN {2})) ;'.format(funname, self.prefix, oper_args)
             return '{0} = mkA (mkN {1}) ;'.format(funname, oper_args)
-        elif pos == wn.ADV or pos == 'b':
-            funname = get_funname(self.lemma, 'Adv')
-            return '{0} = mkAdv {1} ;'.format(funname, oper_args)
-        funname = get_funname(self.lemma, 'V')
-        return '{0} = mkV {1} ;'.format(funname, oper_args)
+        elif pos == 'v':
+            if self.prefix:
+                return '{0} = mkV "{1}" (mkV {2}) ;'.format(funname, self.prefix, oper_args)
+            return '{0} = mkV {1} ;'.format(funname, oper_args)
+        return '{0} = mkAdv {1} ;'.format(funname, oper_args)
 
 def quote_funname(name):
     """Quote funnames which contain characters other than [^_A-Za-z0-9]
@@ -91,8 +106,7 @@ def gen_wn_lemmas(pos):
     That is all the info that we currently want from WordNet.
     TODO: get ILI links too to be able to make bilingual lexicons.
     """
-    wnpos = pos_tags.get(pos)
-    for synset in wn.all_synsets(pos=wnpos):
+    for synset in wn.all_synsets(pos=pos_tags.get(pos)):
         for lemma in synset.lemmas():
             yield pos, synset.name, lemma.name
 
@@ -106,9 +120,9 @@ def filter_synset_lemmas(gen):
             print('Warning: ignored {0} entry with trailing hyphen: {1}'.format(pos, lemma_name), file=sys.stderr)
             continue
         if ' ' in lemma_name:
-            # Do not generate multi-word nouns with space (e.g. "avalik sektor")
-            # because these should be handled by the grammar to get the agreement right.
-            if pos == wn.NOUN:
+            # Do not generate multi-word nouns/adjectives with space (e.g. "avalik sektor", "hiljaks jäänud").
+            # Nouns should be handled by the grammar to get the agreement right.
+            if pos == wn.NOUN or pos == wn.ADJ:
                 print('Warning: ignored {0} entry with space: {1}'.format(pos, lemma_name), file=sys.stderr)
                 continue
         yield pos, synset_name, lemma_name
@@ -121,36 +135,49 @@ def merge(forms):
         return forms[0]
     return ''
 
-def combine(lst, el):
-    if len(el):
-        return ' '.join(lst + [el])
-    return ''
-
 def get_forms_aux(lemma, pos, form_ids):
-    return [ merge(synthesize(lemma, form, pos)) for form in form_ids ]
+    """
+    Notes:
+    - we do not treat hyphenated words (e.g. "13-silbik") as compounds because the hyphen tends to get lost
+    """
+    if '-' not in lemma and (pos == 'S' or pos == 'A'):
+        an_list = analyze([lemma])[0]['analysis']
+        for an in an_list:
+            if an['partofspeech'] == pos and len(an['root_tokens']) > 1:
+                tokens = an['root_tokens']
+                last_token = tokens[-1]
+                if last_token not in SET_PALK:
+                    return ''.join(tokens[0:-1]), [merge(synthesize(last_token, form, pos)) for form in form_ids]
+    return '', [merge(synthesize(lemma, form, pos)) for form in form_ids]
 
 def get_forms(lemma, pos=wn.NOUN):
     """Get the relevant forms given the lemma and its POS.
     Note that synthesize also handles compounding and is smart
-    about words like 'kuupalk'.
+    about words like 'kuupalk' (gen: 'palga') and 'kantpalk' (gen: 'palgi').
     If the input lemma contains spaces then we synthesize based on the last part.
     (In the previous approaches we did compounding separately and
     applied form generation only to the last element of the compound.)
     """
     parts = lemma.split(' ')
+    prefix1 = ' '.join(parts[0:-1])
     if pos == wn.NOUN or pos == 'n':
-        return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'S', NOUN_FORMS) ]
+        prefix2, forms = get_forms_aux(parts[-1], 'S', NOUN_FORMS)
     elif pos == wn.ADJ or pos == 'a':
-        return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'A', NOUN_FORMS) ]
+        prefix2, forms = get_forms_aux(parts[-1], 'A', NOUN_FORMS)
     elif pos == wn.ADV or pos == 'b':
-        return [ lemma ]
+        prefix2, forms = '', [lemma]
     else:
-        return [ combine(parts[0:-1], x) for x in get_forms_aux(parts[-1], 'V', VERB_FORMS) ]
-
+        # TODO: do not split in case of verbs?
+        prefix2, forms = get_forms_aux(parts[-1], 'V', VERB_FORMS)
+    if prefix1:
+        return prefix1 + ' ' + prefix2, forms
+    if prefix2:
+        return prefix2, forms
+    return '', forms
 
 def get_args():
     csl = lambda s: [el.strip() for el in s.split(',')]
-    p = argparse.ArgumentParser(description='Convert the Estonian WordNet into a GF monolingual lexicon DictEst')
+    p = argparse.ArgumentParser(description='Generates a GF monolingual lexicon DictEst based in the Estonian WordNet and the morphology tools that are embedded in EstNLTK')
     p.add_argument('--pos-tags', type=csl, action='store', dest='pos_tags', default=DEFAULT_POS_TAGS_ORDER)
     p.add_argument('-v', '--version', action='version', version='%(prog)s v0.1.1')
     return p.parse_args()
