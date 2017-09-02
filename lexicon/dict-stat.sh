@@ -16,6 +16,8 @@ dir=$2
 
 gf=${dir}Dict${lang}.gf
 
+echo $lang
+echo $dir
 echo "Number of lexicon entries:"
 cat $gf | grep " = mk" | wc -l
 
