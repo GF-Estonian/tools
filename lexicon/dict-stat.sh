@@ -25,4 +25,5 @@ echo "Frequency ranking of oper patterns:"
 cat $gf | grep " = mk" | sed "s/.*= //" | sed 's/"[^"]*"//g' | sed "s/  */ /g" | sed "s/;//" | sort | uniq -c | sort -nr
 
 echo "Number of ambiguous opers (should be avoided):"
+echo "cat $gf | fgrep "= mk" | sed "s/.* = //" | sort | uniq -c | grep -v "^ *1" | wc -l"
 cat $gf | fgrep "= mk" | sed "s/.* = //" | sort | uniq -c | grep -v "^ *1" | wc -l
