@@ -6,8 +6,6 @@
 # cat translator/DictionaryEst.gf | replace-with-d.py -l estonian/DictEstAbs.gf
 #
 
-from __future__ import division, unicode_literals, print_function
-
 import sys
 import re
 import argparse
@@ -17,8 +15,7 @@ def read_lexicon(fn):
     h = {}
     with open(fn, 'r') as f:
         for raw_line in f:
-            line = raw_line.decode('utf8')
-            line = line.strip()
+            line = raw_line.strip()
             if ' : ' in line:
                 val = re.sub(r' :.*', '', line)
                 h[val] = val
@@ -48,9 +45,8 @@ def main():
     args = get_args()
     h = read_lexicon(args.lexicon)
     for raw_line in sys.stdin:
-        line = raw_line.decode('utf8')
-        line = line.strip()
-        print(modify_line(h, line).encode('utf8'))
+        line = raw_line.strip()
+        print(modify_line(h, line))
 
 if __name__ == "__main__":
     main()
